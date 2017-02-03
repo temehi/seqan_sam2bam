@@ -45,12 +45,17 @@ using namespace seqan;
 
 struct AppOptions
 {
+    typedef std::vector<std::string>            TDirection;
+    TDirection          dirList     = {"b2s", "s2b"};
+
     std::string         input_path;
     std::string         output_path;
+    std::string         direction;
 
     AppOptions() :
     input_path(""),
-    output_path("")
+    output_path(""),
+    direction("s2b")
     {}
 };
 
@@ -69,12 +74,20 @@ void setDateAndVersion(ArgumentParser & parser)
 }
 
 
-std::string getOutFileName (const std::string& inpfName)
+std::string getOutFileName (const std::string& inpfName, const std::string& dir)
 {
     std::string result = inpfName;
-    if (result.find(".sam") != std::string::npos && result.find(".sam") == result.find_last_of("."))
+    std::string oldExt = ".sam";
+    std::string newExt = ".bam";
+    if (dir.compare("b2s") == 0)
+    {
+        oldExt = ".bam";
+        newExt = ".sam";
+    }
+
+    if (result.find_last_of(oldExt) != std::string::npos && result.find_last_of(oldExt) == result.find_last_of("."))
         result.replace((result.find_last_of(".")), 4, "");
-    result.append(".bam");
+    result.append(newExt);
     return result;
 }
 
@@ -97,6 +110,12 @@ parseCommandLine(ArgumentParser & parser, AppOptions & options, int argc, char c
     addOption(parser,
               ArgParseOption("o", "output-path", "the path to output file.",
                              ArgParseArgument::OUTPUT_FILE));
+    addOption(parser,
+              ArgParseOption("d", "direction",
+                             "Conversion direction", ArgParseOption::STRING));
+    setValidValues(parser, "direction", options.dirList);
+    setDefaultValue(parser, "direction", options.direction);
+
 
     ArgumentParser::ParseResult res = parse(parser, argc, argv);
 
@@ -108,8 +127,9 @@ parseCommandLine(ArgumentParser & parser, AppOptions & options, int argc, char c
 
     // Extract option values.
     getOptionValue(options.output_path, parser, "output-path");
+    getOptionValue(options.direction, parser, "direction");
     if (!isSet(parser, "output-path"))
-        options.output_path = getOutFileName(options.input_path);
+        options.output_path = getOutFileName(options.input_path, options.direction);
 
 
     return ArgumentParser::PARSE_OK;
@@ -135,7 +155,6 @@ int main(int argc, char const ** argv)
         return res == ArgumentParser::PARSE_ERROR;
 
     BamFileIn bam_file_in;
-    BamFileOut bam_file_out(toCString(options.output_path));
 
     if (!open(bam_file_in, toCString(options.input_path)))
     {
@@ -143,16 +162,17 @@ int main(int argc, char const ** argv)
         return 1;
     }
 
+    BamFileOut bam_file_out(context(bam_file_in), toCString(options.output_path));
 
+    // Read the header from the input file first and and write it to the output file
     BamHeader header;
     readHeader(header, bam_file_in);
-
     writeHeader(bam_file_out, header);
 
-
-    BamAlignmentRecord record;
+    // Iterate over the records and copy them from the input file to the output file
     while (!atEnd(bam_file_in))
     {
+        BamAlignmentRecord record;
         readRecord(record, bam_file_in);
         writeRecord(bam_file_out, record);
     }
